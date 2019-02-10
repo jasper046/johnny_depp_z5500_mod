@@ -73,6 +73,7 @@ void lcd_init(void)
 {
   lcd_cls();
   lcd_clear_buffer();
+  lcd_cls();
 }
 
 void lcd_write_char(char symb)
@@ -85,7 +86,6 @@ void lcd_write_char(char symb)
 void lcd_update_display(void)
 {
   int pos = 0;
-  lcd_cls();
   for (int m = 0; m < 10; m++)
   {
     spi_write(0x3C); // '3C' switch to data register??
@@ -95,7 +95,6 @@ void lcd_update_display(void)
     }
     pos += 8;
   }
-  while(1);
 }
 
 
@@ -106,7 +105,6 @@ void lcd_update_display(void)
 
 void setup() 
 {
-  // put your setup code here, to run once:
   spi_init();
   delay(2000);
 
@@ -121,7 +119,13 @@ void loop()
     strncpy( &lcd_buffer[3], "Here's ", 6);
     strncpy( &lcd_buffer[LCD_LINE_SIZE + 8], "Johnny ", 6);
     lcd_update_display();
-    delay(500);
+    delay(2000);
+
+    lcd_clear_buffer();
+    strncpy( &lcd_buffer[1], "Hallo  ", 6);
+    strncpy( &lcd_buffer[LCD_LINE_SIZE + 2], "Manneh ", 6);
+    lcd_update_display();
+    delay(2000);
   }
 
 #if 0
