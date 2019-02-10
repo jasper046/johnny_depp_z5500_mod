@@ -12,12 +12,22 @@
 
 typedef unsigned char u8_t;
 
+union LcdBuf_t
+{
+   char buf[LCD_BUFFER_SIZE];
+   struct
+   {
+      char line0[LCD_LINE_SIZE];
+      char line1[LCD_LINE_SIZE];
+   }lin;
+};
 
 //===================================
 // global variables
 //===================================
 
-char lcd_buffer[LCD_BUFFER_SIZE];
+LcdBuf_t lcd_buffer;
+
 
 
 //===================================
@@ -67,7 +77,7 @@ void lcd_clear_buffer(void)
 {
    for(int k = 0; k < LCD_BUFFER_SIZE; k++)
    {
-      lcd_buffer[k] = 0x20; // space
+      lcd_buffer.buf[k] = 0x20; // space
    }
 }
 
@@ -106,7 +116,7 @@ void lcd_update_display(void)
       spi_write(0x3C); // '3C' switch to data register?
       for(int k = 0; k < 8; k++)
       {
-        lcd_write_char(lcd_buffer[pos + k]);
+        lcd_write_char(lcd_buffer.buf[pos + k]);
       }
       pos += 8;
    }
@@ -131,15 +141,15 @@ void loop()
    for(int k = 0; k < 8; k++)
    {
       lcd_clear_buffer();
-      strncpy( &lcd_buffer[k], "Here's ", 6);
-      strncpy( &lcd_buffer[LCD_LINE_SIZE + k + 5], "Johnny ", 6);
+      strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
+      strncpy( &lcd_buffer.lin.line1[k + 5], "Johnny ", 6);
       lcd_update_display();
       delay(500);
    }
 
    lcd_clear_buffer();
-   strncpy( &lcd_buffer[1], "Hallo  ", 6);
-   strncpy( &lcd_buffer[LCD_LINE_SIZE + 2], "Manneh ", 6);
+   strncpy( &lcd_buffer.lin.line0[1], "Hallo  ", 6);
+   strncpy( &lcd_buffer.lin.line1[2], "Manneh ", 6);
    lcd_update_display();
    delay(2000);
 }
