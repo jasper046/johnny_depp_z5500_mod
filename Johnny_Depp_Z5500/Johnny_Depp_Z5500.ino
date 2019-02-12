@@ -6,8 +6,10 @@
 #define SDA    11
 #define SCL    12
 
-#define ENCPINA A1
-#define ENCPINB A2
+//BOARD	                              DIGITAL PINS USABLE FOR INTERRUPTS
+//Uno, Nano, Mini, other 328-based     2, 3
+#define ENCPINA 2
+#define ENCPINB 3
 
 
 #define LCD_BUFFER_SIZE         (10*8)
@@ -151,27 +153,7 @@ void lcd_update_display(void)
 // Rotary functions
 //===================================
 
-void init_interrupts(void)
-{
-   pinMode (ENCPINA, INPUT);
-   pinMode (ENCPINB, INPUT);
-
-   // Enable internal pull-up resistors
-   digitalWrite(ENCPINA, HIGH);
-   digitalWrite(ENCPINB, HIGH);
-
-   // ISR (PCINT0_vect) pin change interrupt for D8 to D13
-   // ISR (PCINT1_vect) pin change interrupt for A0 to A5
-   // ISR (PCINT2_vect) pin change interrupt for D0 to D7
-   EICRA =  0x02; // interrupt on any change
-   PCICR =  0x02; // Enable PCIE1
-   PCMSK1 = 0b00000110; // Enable Pin Change Interrupt for A1, A2
-
-   sei();
-}
-
-
-ISR (PCINT1_vect)
+void rotary_update (void)
 {
    // Read A and B signals
    boolean A_val = digitalRead(ENCPINA);
@@ -201,6 +183,17 @@ ISR (PCINT1_vect)
       right = true;
    }
 }
+
+void rotary_init(void)
+{
+   // Attach update function to interrupt events
+   pinMode(ENCPINA, INPUT_PULLUP);
+   attachInterrupt(digitalPinToInterrupt(ENCPINA), rotary_update, CHANGE);
+
+   pinMode(ENCPINB, INPUT_PULLUP);
+   attachInterrupt(digitalPinToInterrupt(ENCPINB), rotary_update, CHANGE);
+}
+
 
 
 void splash (void)
@@ -261,7 +254,7 @@ void setup()
   lcd_init();
 
   splash();
-  init_interrupts();
+  rotary_init();
 }
 
 void loop()
