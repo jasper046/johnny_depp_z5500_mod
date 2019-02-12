@@ -223,11 +223,11 @@ void set_volume(void)
    strncpy( &lcd_buffer.lin.line0[6], "Volume ", 6);
    for(k = 0; k < vol_dif2; k++)
    {
-      lcd_buffer.lin.line1[k] = '=';
+      lcd_buffer.lin.line1[k] = 'X';
    }
    if (volume & 1)
    {
-      lcd_buffer.lin.line1[k] = '-';
+      lcd_buffer.lin.line1[k] = '\';
    }
    update = true;
 }
