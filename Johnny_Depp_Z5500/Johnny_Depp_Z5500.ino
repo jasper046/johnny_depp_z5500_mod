@@ -8,8 +8,8 @@
 
 //BOARD	                              DIGITAL PINS USABLE FOR INTERRUPTS
 //Uno, Nano, Mini, other 328-based     2, 3
-#define ENCPINA 2
-#define ENCPINB 3
+#define ENCPINA 3
+#define ENCPINB 2
 
 
 #define LCD_BUFFER_SIZE         (10*8)
@@ -55,14 +55,14 @@ bool     update = false;
 
 void spi_init(void)
 {
+   pinMode(SCL, OUTPUT);
+   digitalWrite(SCL, LOW);
+
    pinMode(CS, OUTPUT);
    digitalWrite(CS, HIGH);
 
    pinMode(SDA, OUTPUT);
    digitalWrite(SDA, LOW);
-
-   pinMode(SCL, OUTPUT);
-   digitalWrite(SCL, HIGH);
 }
 
 void spi_write(u8_t val)
@@ -155,6 +155,8 @@ void lcd_update_display(void)
 
 void rotary_update (void)
 {
+   //Serial.println("interrupt");
+
    // Read A and B signals
    boolean A_val = digitalRead(ENCPINA);
    boolean B_val = digitalRead(ENCPINB);
@@ -219,16 +221,22 @@ void set_volume(void)
    vol_dif2 = volume>>1;
 
    // Update display
+   Serial.println (volume);
    lcd_clear_buffer();
    strncpy( &lcd_buffer.lin.line0[6], "Volume ", 6);
    for(k = 0; k < vol_dif2; k++)
    {
       lcd_buffer.lin.line1[k] = 'X';
+      Serial.print ('X');
    }
    if (volume & 1)
    {
-      lcd_buffer.lin.line1[k] = '\';
+      lcd_buffer.lin.line1[k] = '\\';
+      Serial.print ('\\');
    }
+   Serial.print ("\n");
+
+
    update = true;
 }
 
@@ -249,6 +257,8 @@ void screen_update(void)
 
 void setup()
 {
+  Serial.begin (9600);
+
   spi_init();
   delay(2000);
   lcd_init();
