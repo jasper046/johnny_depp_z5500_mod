@@ -16,6 +16,8 @@
 #define LCD_LINE_SIZE           (LCD_BUFFER_SIZE / 2)
 #define LCD_LINE_VISIBLE_LENGTH (20)
 
+#define MAX_VOLUME              (32)
+
 typedef signed char    s8_t;
 typedef signed short   s16_t;
 
@@ -31,6 +33,8 @@ union LcdBuf_t
       char line1[LCD_LINE_SIZE];
    }lin;
 };
+
+char  msg[LCD_LINE_SIZE];
 
 //===================================
 // global variables
@@ -59,7 +63,7 @@ void spi_init(void)
    digitalWrite(SCL, LOW);
 
    pinMode(CS, OUTPUT);
-   digitalWrite(CS, HIGH);
+   digitalWrite(CS, LOW);
 
    pinMode(SDA, OUTPUT);
    digitalWrite(SDA, LOW);
@@ -104,11 +108,21 @@ void lcd_cls(void)
 {
   spi_write(0x38);
   spi_write(0x3C);
+
+//  spi_write(0x38); // '38' switch to command register??
   spi_write(0x07);
+
+//  spi_write(0x38); // '38' switch to command register??
+//  spi_write(0x40);
+//  spi_write(0x20);
 
   spi_write(0x38); // '38' switch to command register??
   spi_write(0x0C); // Display on, cursor off
+
+  spi_write(0x38); // '38' switch to command register??
   spi_write(0x01); // clear display
+
+  spi_write(0x38); // '38' switch to command register??
   spi_write(0x02); // cursor to first position
   delayMicroseconds(50);
 }
@@ -117,7 +131,6 @@ void lcd_init(void)
 {
   lcd_cls();
   lcd_clear_buffer();
-  lcd_cls();
 }
 
 void lcd_write_char(char symb)
@@ -206,9 +219,9 @@ void splash (void)
       strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
       strncpy( &lcd_buffer.lin.line1[19 - k], "Johnny ", 6);
       lcd_update_display();
-      delay(400);
+      delay(200);
    }
-   delay(2000);
+   delay(500);
 }
 
 
@@ -223,16 +236,18 @@ void set_volume(void)
    // Update display
    Serial.println (volume);
    lcd_clear_buffer();
-   strncpy( &lcd_buffer.lin.line0[6], "Volume ", 6);
+   strncpy( &lcd_buffer.lin.line0[4], "Volume - ", 8);
+   sprintf( msg, "%02d", volume);
+   strncpy( &lcd_buffer.lin.line0[13], msg, 2);
    for(k = 0; k < vol_dif2; k++)
    {
-      lcd_buffer.lin.line1[k] = 'X';
+      lcd_buffer.lin.line1[k+2] = '=';
       Serial.print ('X');
    }
    if (volume & 1)
    {
-      lcd_buffer.lin.line1[k] = '\\';
-      Serial.print ('\\');
+      lcd_buffer.lin.line1[k+2] = '-';
+      Serial.print ('x');
    }
    Serial.print ("\n");
 
@@ -257,11 +272,13 @@ void screen_update(void)
 
 void setup()
 {
+  spi_init();
+
   Serial.begin (9600);
 
-  spi_init();
-  delay(2000);
+  delay(500);
   lcd_init();
+  delay(500);
 
   splash();
   rotary_init();
@@ -278,8 +295,8 @@ void loop()
          volume += cnt2;
          cnt2   = 0;
          right  = false;
-         if (volume > 40)
-            volume = 40;
+         if (volume > MAX_VOLUME)
+            volume = MAX_VOLUME;
 
          set_volume();
       }
@@ -301,6 +318,6 @@ void loop()
    if (!loop_cnt)
       screen_update();
 
-   delay(100);
+   delay(25);
 }
 
