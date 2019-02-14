@@ -18,6 +18,9 @@
 
 #define MAX_VOLUME              (32)
 
+#define SERIAL_ENABLE           (0)
+
+
 typedef signed char    s8_t;
 typedef signed short   s16_t;
 
@@ -168,7 +171,9 @@ void lcd_update_display(void)
 
 void rotary_update (void)
 {
+#if SERIAL_ENABLE
    //Serial.println("interrupt");
+#endif
 
    // Read A and B signals
    boolean A_val = digitalRead(ENCPINA);
@@ -213,11 +218,11 @@ void rotary_init(void)
 
 void splash (void)
 {
-   for(int k = 0; k < 10; k++)
+   for(int k = 0; k < 8; k++)
    {
       lcd_clear_buffer();
       strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
-      strncpy( &lcd_buffer.lin.line1[19 - k], "Johnny ", 6);
+      strncpy( &lcd_buffer.lin.line1[18 - k], "Johnny ", 6);
       lcd_update_display();
       delay(200);
    }
@@ -234,7 +239,9 @@ void set_volume(void)
    vol_dif2 = volume>>1;
 
    // Update display
+#if SERIAL_ENABLE
    Serial.println (volume);
+#endif
    lcd_clear_buffer();
    strncpy( &lcd_buffer.lin.line0[4], "Volume - ", 8);
    sprintf( msg, "%02d", volume);
@@ -242,14 +249,20 @@ void set_volume(void)
    for(k = 0; k < vol_dif2; k++)
    {
       lcd_buffer.lin.line1[k+2] = '=';
+#if SERIAL_ENABLE
       Serial.print ('X');
+#endif
    }
    if (volume & 1)
    {
       lcd_buffer.lin.line1[k+2] = '-';
+#if SERIAL_ENABLE
       Serial.print ('x');
+#endif
    }
+#if SERIAL_ENABLE
    Serial.print ("\n");
+#endif
 
 
    update = true;
@@ -274,7 +287,9 @@ void setup()
 {
   spi_init();
 
+#if SERIAL_ENABLE
   Serial.begin (9600);
+#endif
 
   delay(500);
   lcd_init();
