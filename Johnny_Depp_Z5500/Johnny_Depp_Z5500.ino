@@ -2,16 +2,38 @@
 // definitions
 //===================================
 
-#define CS     10
-#define SDA    11
-#define SCL    12
+#define SPI_CS     10
+#define SPI_SDA    11
+#define SPI_SCL    12
+
+#define I2C_SDA     5
+#define I2C_SCL     4
+#define I2C_DELAY   5
+// Delay of 5 usec ~= 100kHz I2C
+#define I2C_OK      0
+#define I2C_ERROR   1
 
 //BOARD	                              DIGITAL PINS USABLE FOR INTERRUPTS
 //Uno, Nano, Mini, other 328-based     2, 3
+
+// rotary encoder
 #define ENCPINA 3
 #define ENCPINB 2
 
+// NJW1150 control
+#define NJW1150_ADDR          0x88
 
+#define NJW1150_REG_VOLUME    0x00
+#define NJW1150_REG_LEFT      0x01
+#define NJW1150_REG_RIGHT     0x02
+#define NJW1150_REG_CENTER    0x03
+#define NJW1150_REG_SL        0x04
+#define NJW1150_REG_SR        0x05
+#define NJW1150_REG_SUB       0x06
+#define NJW1150_REG_TONE      0x07
+#define NJW1150_REG_MUTE      0x08
+
+// LCS pannel
 #define LCD_BUFFER_SIZE         (10*8)
 #define LCD_LINE_SIZE           (LCD_BUFFER_SIZE / 2)
 #define LCD_LINE_VISIBLE_LENGTH (20)
@@ -56,20 +78,21 @@ volatile boolean button = false;
 s16_t    volume = 0;
 bool     update = false;
 
+
 //===================================
 // SPI functions
 //===================================
 
 void spi_init(void)
 {
-   pinMode(SCL, OUTPUT);
-   digitalWrite(SCL, LOW);
+   pinMode(SPI_SCL, OUTPUT);
+   digitalWrite(SPI_SCL, LOW);
 
-   pinMode(CS, OUTPUT);
-   digitalWrite(CS, LOW);
+   pinMode(SPI_CS, OUTPUT);
+   digitalWrite(SPI_CS, LOW);
 
-   pinMode(SDA, OUTPUT);
-   digitalWrite(SDA, LOW);
+   pinMode(SPI_SDA, OUTPUT);
+   digitalWrite(SPI_SDA, LOW);
 }
 
 void spi_write(u8_t val)
@@ -77,7 +100,7 @@ void spi_write(u8_t val)
    u8_t k;
    bool b;
 
-   digitalWrite(CS, LOW);
+   digitalWrite(SPI_CS, LOW);
    delayMicroseconds(2);
    k = 8;
    while(k--)
@@ -85,14 +108,227 @@ void spi_write(u8_t val)
       b = (val & 0x80) ? HIGH : LOW;
       val <<= 1;
 
-      digitalWrite(SDA, b);
-      digitalWrite(SCL, LOW);
+      digitalWrite(SPI_SDA, b);
+      digitalWrite(SPI_SCL, LOW);
       delayMicroseconds(2);
-      digitalWrite(SCL, HIGH);
+      digitalWrite(SPI_SCL, HIGH);
    }
-   digitalWrite(CS,  HIGH);
+   digitalWrite(SPI_CS,  HIGH);
    delayMicroseconds(60);
 }
+
+
+//===================================
+// I2C functions
+//===================================
+
+void i2c_start (void)
+{
+   u8_t timeout = 255;
+
+   while( !digitalRead(I2C_SCL) &&
+          !digitalRead(I2C_SDA) &&
+          timeout-- )
+   {
+      delayMicroseconds(2);
+   }
+
+   pinMode(I2C_SDA, OUTPUT);
+   digitalWrite(I2C_SDA, LOW);
+   delayMicroseconds(I2C_DELAY);
+   pinMode(I2C_SCL, OUTPUT);
+   digitalWrite(I2C_SCL, LOW);
+   delayMicroseconds(I2C_DELAY);
+}
+
+
+void i2c_stop (void)
+{
+   u8_t timeout = 255;
+
+   pinMode(I2C_SDA, OUTPUT);
+   digitalWrite(I2C_SDA, LOW);
+   delayMicroseconds(I2C_DELAY);
+   digitalWrite(I2C_SCL, HIGH);
+   while( !digitalRead(I2C_SCL) &&
+          timeout-- )
+
+   delayMicroseconds(I2C_DELAY);
+   digitalWrite(I2C_SDA, HIGH);
+   delayMicroseconds(I2C_DELAY);
+}
+
+
+boolean i2c_write_byte(u8_t val)
+{
+   u8_t k;
+   bool b;
+   u8_t timeout = 255;
+
+   // write byte
+   k = 8;
+   while(k--)
+   {
+      b = (val & 0x80) ? HIGH : LOW;
+      val <<= 1;
+
+      pinMode(I2C_SDA, OUTPUT);
+      digitalWrite(I2C_SDA, b);
+      digitalWrite(I2C_SCL, HIGH);
+      delayMicroseconds(I2C_DELAY);
+      pinMode(I2C_SCL, OUTPUT);
+      digitalWrite(I2C_SCL, LOW);
+      delayMicroseconds(I2C_DELAY);
+   }
+
+   // check ack
+   pinMode(I2C_SDA, INPUT);
+   digitalWrite(I2C_SDA, HIGH);
+   pinMode(I2C_SCL, INPUT);
+   digitalWrite(I2C_SCL,  HIGH);
+   while( !digitalRead(I2C_SCL) &&
+          timeout-- )
+
+   delayMicroseconds(I2C_DELAY);
+   b = digitalRead(I2C_SDA);
+   pinMode(I2C_SCL, OUTPUT);
+   digitalWrite(I2C_SCL, LOW);
+   delayMicroseconds(I2C_DELAY);
+
+   return !b;
+}
+
+
+u8_t i2c_read_byte(bool ack)
+{
+   u8_t k;
+   u8_t B = 0;
+   bool b;
+   u8_t timeout = 255;
+
+   // read byte
+   k = 8;
+   pinMode(I2C_SDA, INPUT);
+   digitalWrite(I2C_SDA, HIGH);
+   while(k--)
+   {
+      pinMode(I2C_SCL, INPUT);
+      digitalWrite(I2C_SCL, HIGH);
+      while(!digitalRead(I2C_SCL));
+
+      delayMicroseconds(I2C_DELAY);
+      b = digitalRead(I2C_SDA);
+      pinMode(I2C_SCL, OUTPUT);
+      digitalWrite(I2C_SCL, LOW);
+      delayMicroseconds(I2C_DELAY);
+      B |= (b == true) ? 0x01 : 0x00;
+      B <<= 1;
+   }
+
+   // ack (or nack)
+   if (!ack)
+   {
+      pinMode(I2C_SDA, OUTPUT);
+      digitalWrite(I2C_SDA, LOW);
+   }
+   pinMode(I2C_SCL, INPUT);
+   digitalWrite(I2C_SCL,  HIGH);
+   while( !digitalRead(I2C_SCL) &&
+          timeout-- )
+
+   delayMicroseconds(I2C_DELAY);
+   pinMode(I2C_SCL, OUTPUT);
+   digitalWrite(I2C_SCL, LOW);
+   delayMicroseconds(I2C_DELAY);
+
+   return B;
+}
+
+
+u8_t i2c_read_register(u8_t addr, u8_t subaddr, u8_t *data)
+{
+   bool ack;
+
+   if (!data)
+   {
+      return I2C_ERROR;
+   }
+
+   // start
+   i2c_start();
+
+   // addr
+   ack = i2c_write_byte(addr);
+   if (!ack)
+   {
+      // no ack from slave
+      return I2C_ERROR;
+   }
+
+   // subaddr
+   ack = i2c_write_byte(subaddr);
+   if (!ack)
+   {
+      // no ack from slave
+      return I2C_ERROR;
+   }
+
+   *data = i2c_read_byte(false); // nack to signal the last byte
+
+   // release bus
+   i2c_stop();
+
+   return I2C_OK;
+}
+
+
+u8_t i2c_write_register(u8_t addr, u8_t subaddr, u8_t data)
+{
+   bool ack;
+
+   // start
+   i2c_start();
+
+   // addr
+   ack = i2c_write_byte(addr);
+   if (!ack)
+   {
+      // no ack from slave
+      return I2C_ERROR;
+   }
+
+   // subaddr
+   ack = i2c_write_byte(subaddr);
+   if (!ack)
+   {
+      // no ack from slave
+      return I2C_ERROR;
+   }
+
+   // data
+   ack = i2c_write_byte(data);
+   if (!ack)
+   {
+      // no ack from slave
+      return I2C_ERROR;
+   }
+
+   // release bus
+   i2c_stop();
+
+   return I2C_OK;
+}
+
+
+void i2c_init (void)
+{
+   pinMode(I2C_SCL, OUTPUT);
+   pinMode(I2C_SDA, OUTPUT);
+
+   i2c_stop();
+}
+
+
 
 
 //===================================
@@ -114,10 +350,6 @@ void lcd_cls(void)
 
 //  spi_write(0x38); // '38' switch to command register??
   spi_write(0x07);
-
-//  spi_write(0x38); // '38' switch to command register??
-//  spi_write(0x40);
-//  spi_write(0x20);
 
   spi_write(0x38); // '38' switch to command register??
   spi_write(0x0C); // Display on, cursor off
@@ -179,7 +411,7 @@ void rotary_update (void)
    boolean A_val = digitalRead(ENCPINA);
    boolean B_val = digitalRead(ENCPINB);
 
-   // Record the A and B signals in seperate sequences
+   // Record the A and B signals in separate sequences
    seqA <<= 1;
    seqA |= A_val;
 
@@ -215,6 +447,39 @@ void rotary_init(void)
 }
 
 
+//===================================
+// NJW1150 functions
+//===================================
+
+void njw1150_init(void)
+{
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_VOLUME, 0x20);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,   0x00);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT,  0x00);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_CENTER, 0x06);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SUB,    0x0C);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x00);
+}
+
+
+void njw1150_set_volume(u8_t vol)
+{
+   u8_t val = 0;
+
+   if (vol == 0)
+      val = 0x50; // mute
+   if (vol >= 32)
+      val = 0;    // 0dB attenuation
+   else
+      val = 79 - (vol*5/2);
+
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_VOLUME, val);
+}
+
+
+//===================================
+// Misc functions
+//===================================
 
 void splash (void)
 {
@@ -228,7 +493,6 @@ void splash (void)
    }
    delay(500);
 }
-
 
 
 void set_volume(void)
@@ -255,7 +519,7 @@ void set_volume(void)
    }
    if (volume & 1)
    {
-      lcd_buffer.lin.line1[k+2] = '-';
+      lcd_buffer.lin.line1[k+2] = ':';
 #if SERIAL_ENABLE
       Serial.print ('x');
 #endif
@@ -263,7 +527,6 @@ void set_volume(void)
 #if SERIAL_ENABLE
    Serial.print ("\n");
 #endif
-
 
    update = true;
 }
@@ -285,18 +548,20 @@ void screen_update(void)
 
 void setup()
 {
-  spi_init();
+   spi_init();
+   i2c_init();
 
 #if SERIAL_ENABLE
-  Serial.begin (9600);
+   Serial.begin (9600);
 #endif
 
-  delay(500);
-  lcd_init();
-  delay(500);
+   delay(500);
+   lcd_init();
+   njw1150_init();
+   delay(500);
 
-  splash();
-  rotary_init();
+   splash();
+   rotary_init();
 }
 
 void loop()
@@ -329,10 +594,14 @@ void loop()
    }
 
    loop_cnt++;
-   loop_cnt &= 0x03;
-   if (!loop_cnt)
-      screen_update();
+   if (update)
+   {
+      if (!(loop_cnt & 0x03))
+         screen_update();
 
+      if (!(loop_cnt & 0x07))
+         njw1150_set_volume(volume);
+   }
    delay(25);
 }
 
