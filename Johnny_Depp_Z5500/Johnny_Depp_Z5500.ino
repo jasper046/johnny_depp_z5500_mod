@@ -20,6 +20,19 @@
 #define ENCPINA 3
 #define ENCPINB 2
 
+// HW power/mute control (WA13, WA16 = ON, WA14 = MUTE)
+#define PIN_ON    6
+#define PIN_MUTE  7
+
+// Buttons
+#define BUTTON_EFFECT   A0
+#define BUTTON_SETTING  A1
+#define BUTTON_LEVEL    A4
+#define BUTTON_MUTE     A5
+
+
+
+
 // NJW1150 control
 #define NJW1150_ADDR          0x88
 
@@ -456,9 +469,9 @@ void njw1150_init(void)
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_VOLUME, 0x20);
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,   0x00);
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT,  0x00);
-   i2c_write_register(NJW1150_ADDR, NJW1150_REG_CENTER, 0x06);
-   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SUB,    0x0C);
-   i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x00);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_CENTER, 0x03);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SUB,    0x00);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x3F);
 }
 
 
@@ -467,12 +480,23 @@ void njw1150_set_volume(u8_t vol)
    u8_t val = 0;
 
    if (vol == 0)
+   {
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x3F);
+      digitalWrite(PIN_MUTE, HIGH);
       val = 0x50; // mute
-   if (vol >= 32)
-      val = 0;    // 0dB attenuation
+   }
    else
-      val = 79 - (vol*5/2);
+   {
 
+      digitalWrite(PIN_MUTE, LOW);
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x00);
+      if (vol >= 32)
+         val = 0;    // 0dB attenuation
+      else if (vol > 16)
+         val = 32 - vol;
+      else
+         val = 48 - (vol<<1);
+   }
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_VOLUME, val);
 }
 
@@ -519,7 +543,7 @@ void set_volume(void)
    }
    if (volume & 1)
    {
-      lcd_buffer.lin.line1[k+2] = ':';
+      lcd_buffer.lin.line1[k+2] = '-';
 #if SERIAL_ENABLE
       Serial.print ('x');
 #endif
@@ -548,6 +572,11 @@ void screen_update(void)
 
 void setup()
 {
+   pinMode(PIN_ON,   OUTPUT);
+   pinMode(PIN_MUTE, OUTPUT);
+   digitalWrite(PIN_MUTE, HIGH);
+   digitalWrite(PIN_ON,   HIGH);
+
    spi_init();
    i2c_init();
 
@@ -559,6 +588,8 @@ void setup()
    lcd_init();
    njw1150_init();
    delay(500);
+
+   digitalWrite(PIN_ON,   LOW);
 
    splash();
    rotary_init();
