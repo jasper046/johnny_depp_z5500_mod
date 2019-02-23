@@ -52,17 +52,20 @@
 #define MAX_VOLUME              (32)
 #define MIN_SUB                 (-9)
 #define MAX_SUB                 (6)
+#define MIN_BALANCE             (-7)
+#define MAX_BALANCE             (7)
 
 
 #define LEVEL_STATE_VOLUME      (0)
 #define LEVEL_STATE_SUB         (1)
 #define LEVEL_STATE_BALANCE     (2)
-#define LEVEL_STATE_SURROUND    (3)
-#define LEVEL_STATE_MAX         (LEVEL_STATE_SUB)
+#define LEVEL_STATE_CENTER      (3)
+#define LEVEL_STATE_SURROUND    (4)
+#define LEVEL_STATE_MAX         (LEVEL_STATE_BALANCE)
 
 // Timing
-#define LOOP_IDLE_PERIOD        (25)
-#define INACTIVITY_COUNT_INIT   (120)
+#define LOOP_IDLE_PERIOD        (20)
+#define INACTIVITY_COUNT_INIT   (150)
 
 // Debugging
 #define SERIAL_ENABLE           (0)
@@ -100,9 +103,10 @@ volatile boolean right  = false;
 volatile boolean left   = false;
 volatile boolean button = false;
 
-bool     mute   = false;
-s8_t     volume = 0;
-s8_t     sub    = 0;
+bool     mute    = false;
+s8_t     volume  = 0;
+s8_t     sub     = 0;
+s8_t     balance = 0;
 
 bool     update_screen  = false;
 bool     update_njw1150 = false;
@@ -550,6 +554,42 @@ void njw1150_set_sub(void)
 }
 
 
+void njw1150_set_balance(void)
+{
+   u8_t val = 0;
+
+   if (balance == 0)
+   {
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,  0);
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT, 0);
+   }
+   else if (balance > 0)
+   {
+      // "right" means attenuate left
+      val = balance;
+      val <<= 2;
+      if (val > 0x1F)
+      {
+         val = 0x1F;
+      }
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,  val);
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT, 0);
+   }
+   else
+   {
+      // "left" means attenuate right
+      val = (u8_t) (-balance);
+      val <<= 2;
+      if (val > 0x1F)
+      {
+         val = 0x1F;
+      }
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,  0);
+      i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT, val);
+   }
+}
+
+
 //===================================
 // Button functions
 //===================================
@@ -706,8 +746,47 @@ void set_sub(void)
 }
 
 
+void set_balance(void)
+{
+   s8_t k;
+
+   lcd_clear_buffer();
+   if (balance == 0)
+   {
+      strncpy( &lcd_buffer.lin.line0[2], "Balance:  00", 12);
+   }
+   else if ( balance > 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[2], "Balance: R", 10);
+      sprintf( msg, "%02d", balance);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+   }
+   else
+   {
+      strncpy( &lcd_buffer.lin.line0[2], "Balance: L", 10);
+      sprintf( msg, "%02d", -balance);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+   }
+   for (k = 0; k <= (MAX_BALANCE - MIN_BALANCE); k++)
+   {
+      if (k == (balance - MAX_BALANCE))
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
+      }
+      else
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
+      }
+   }
+
+   update_screen  = true;
+   update_njw1150 = true;
+}
+
+
 void handle_level(void)
 {
+   // Update level state machine
    if (!inactivity_countdown)
    {
       level_state = LEVEL_STATE_VOLUME;
@@ -725,6 +804,7 @@ void handle_level(void)
    }
    button_level_pressed = false;
 
+   // Update level setting
    switch(level_state)
    {
       case LEVEL_STATE_VOLUME:
@@ -771,6 +851,23 @@ void handle_level(void)
       }
       case LEVEL_STATE_BALANCE:
       {
+         if (right)
+         {
+            balance += cnt2;
+            cnt2   = 0;
+            right  = false;
+            if (balance > MAX_BALANCE)
+               balance = MAX_BALANCE;
+         }
+         if (left)
+         {
+            balance -= cnt1;
+            cnt1   = 0;
+            left   = false;
+            if (balance < MIN_BALANCE)
+               balance = MIN_BALANCE;
+         }
+         set_balance();
          break;
       }
       case LEVEL_STATE_SURROUND:
@@ -781,6 +878,8 @@ void handle_level(void)
          level_state = LEVEL_STATE_VOLUME;
          break;
    }
+
+   // Reset inactivity timer
    inactivity_countdown = INACTIVITY_COUNT_INIT;
 }
 
@@ -799,8 +898,8 @@ void setup()
 {
    pinMode(PIN_ON,   OUTPUT);
    pinMode(PIN_MUTE, OUTPUT);
-   digitalWrite(PIN_MUTE, HIGH);
    digitalWrite(PIN_ON,   HIGH);
+   digitalWrite(PIN_MUTE, HIGH);
 
    button_init();
    spi_init();
@@ -821,8 +920,9 @@ void setup()
    rotary_init();
 
    // default levels
-   volume = 5;
-   sub    = 0;
+   volume  = 5;
+   sub     = 0;
+   balance = 0;
    update_njw1150 = true;
    inactivity_countdown = INACTIVITY_COUNT_INIT;
 }
@@ -854,6 +954,7 @@ void loop()
       {
          njw1150_set_volume();
          njw1150_set_sub();
+         njw1150_set_balance();
          update_njw1150 = false;
       }
    }
