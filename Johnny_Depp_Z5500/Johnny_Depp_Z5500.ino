@@ -1,3 +1,9 @@
+/*
+   New brains for the deceived Logitec Z550 that also goes by
+   the name of Johnny Depp
+*/
+
+
 //===================================
 // definitions
 //===================================
@@ -13,8 +19,8 @@
 #define I2C_OK      0
 #define I2C_ERROR   1
 
-//BOARD	                              DIGITAL PINS USABLE FOR INTERRUPTS
-//Uno, Nano, Mini, other 328-based     2, 3
+//BOARD	                    DIGITAL PINS USABLE FOR INTERRUPTS
+//Arduino Nano (328-based):    2, 3
 
 // rotary encoder
 #define ENCPINA 3
@@ -54,14 +60,15 @@
 #define MAX_SUB                 (6)
 #define MIN_BALANCE             (-7)
 #define MAX_BALANCE             (7)
-
+#define MIN_CENTER              (-9)
+#define MAX_CENTER              (6)
 
 #define LEVEL_STATE_VOLUME      (0)
 #define LEVEL_STATE_SUB         (1)
 #define LEVEL_STATE_BALANCE     (2)
 #define LEVEL_STATE_CENTER      (3)
 #define LEVEL_STATE_SURROUND    (4)
-#define LEVEL_STATE_MAX         (LEVEL_STATE_BALANCE)
+#define LEVEL_STATE_MAX         (LEVEL_STATE_CENTER)
 
 // Timing
 #define LOOP_IDLE_PERIOD        (20)
@@ -107,6 +114,7 @@ bool     mute    = false;
 s8_t     volume  = 0;
 s8_t     sub     = 0;
 s8_t     balance = 0;
+s8_t     center  = 0;
 
 bool     update_screen  = false;
 bool     update_njw1150 = false;
@@ -590,6 +598,19 @@ void njw1150_set_balance(void)
 }
 
 
+void njw1150_set_center(void)
+{
+   u8_t val = 0;
+
+   val = (u8_t) (MAX_CENTER - center);
+   if (val > 20)
+   {
+      val = 20;
+   }
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_CENTER, val);
+}
+
+
 //===================================
 // Button functions
 //===================================
@@ -717,7 +738,11 @@ void set_sub(void)
    s8_t k;
 
    lcd_clear_buffer();
-   if ( sub >= 0 )
+   if ( sub == 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[5], "Sub:   00",  9);
+   }
+   else if ( sub >= 0 )
    {
       strncpy( &lcd_buffer.lin.line0[5], "Sub:  +",  7);
       sprintf( msg, "%02d", sub);
@@ -770,6 +795,44 @@ void set_balance(void)
    for (k = 0; k <= (MAX_BALANCE - MIN_BALANCE); k++)
    {
       if (k == (balance - MAX_BALANCE))
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
+      }
+      else
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
+      }
+   }
+
+   update_screen  = true;
+   update_njw1150 = true;
+}
+
+
+void set_center (void)
+{
+   s8_t k;
+
+   lcd_clear_buffer();
+   if ( center == 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[3], "Center:  00",  11);
+   }
+   else if ( center >= 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[3], "Center: +",  9);
+      sprintf( msg, "%02d", center);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+   }
+   else
+   {
+      strncpy( &lcd_buffer.lin.line0[3], "Center: -",  9);
+      sprintf( msg, "%02d", -center);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+   }
+   for (k = 0; k <= (MAX_CENTER - MIN_CENTER); k++)
+   {
+      if (k == (center - MIN_CENTER))
       {
          strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
       }
@@ -870,6 +933,27 @@ void handle_level(void)
          set_balance();
          break;
       }
+      case LEVEL_STATE_CENTER:
+      {
+         if (right)
+         {
+            center += cnt2;
+            cnt2   = 0;
+            right  = false;
+            if (center > MAX_CENTER)
+               center = MAX_CENTER;
+         }
+         if (left)
+         {
+            center -= cnt1;
+            cnt1   = 0;
+            left   = false;
+            if (center < MIN_CENTER)
+               center = MIN_CENTER;
+         }
+         set_center();
+         break;
+      }
       case LEVEL_STATE_SURROUND:
       {
          break;
@@ -955,6 +1039,7 @@ void loop()
          njw1150_set_volume();
          njw1150_set_sub();
          njw1150_set_balance();
+         njw1150_set_center();
          update_njw1150 = false;
       }
    }
