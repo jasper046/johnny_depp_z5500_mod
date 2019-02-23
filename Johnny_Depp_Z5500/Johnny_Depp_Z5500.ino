@@ -30,9 +30,6 @@
 #define BUTTON_LEVEL    A4
 #define BUTTON_MUTE     A5
 
-
-
-
 // NJW1150 control
 #define NJW1150_ADDR          0x88
 
@@ -46,13 +43,28 @@
 #define NJW1150_REG_TONE      0x07
 #define NJW1150_REG_MUTE      0x08
 
-// LCS pannel
+// LCD pannel
 #define LCD_BUFFER_SIZE         (10*8)
 #define LCD_LINE_SIZE           (LCD_BUFFER_SIZE / 2)
 #define LCD_LINE_VISIBLE_LENGTH (20)
 
+// Levels
 #define MAX_VOLUME              (32)
+#define MIN_SUB                 (-9)
+#define MAX_SUB                 (6)
 
+
+#define LEVEL_STATE_VOLUME      (0)
+#define LEVEL_STATE_SUB         (1)
+#define LEVEL_STATE_BALANCE     (2)
+#define LEVEL_STATE_SURROUND    (3)
+#define LEVEL_STATE_MAX         (LEVEL_STATE_SUB)
+
+// Timing
+#define LOOP_IDLE_PERIOD        (25)
+#define INACTIVITY_COUNT_INIT   (120)
+
+// Debugging
 #define SERIAL_ENABLE           (0)
 
 
@@ -88,8 +100,25 @@ volatile boolean right  = false;
 volatile boolean left   = false;
 volatile boolean button = false;
 
-s16_t    volume = 0;
-bool     update = false;
+bool     mute   = false;
+s8_t     volume = 0;
+s8_t     sub    = 0;
+
+bool     update_screen  = false;
+bool     update_njw1150 = false;
+
+bool     button_effect_val;
+bool     button_setting_val;
+bool     button_level_val;
+bool     button_mute_val;
+
+bool     button_effect_pressed  = false;
+bool     button_setting_pressed = false;
+bool     button_level_pressed   = false;
+bool     button_mute_pressed    = false;
+
+u8_t     level_state = LEVEL_STATE_VOLUME;
+u8_t     inactivity_countdown;
 
 
 //===================================
@@ -470,16 +499,17 @@ void njw1150_init(void)
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,   0x00);
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT,  0x00);
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_CENTER, 0x03);
-   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SUB,    0x00);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SUB,    0x0C);
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x3F);
 }
 
 
-void njw1150_set_volume(u8_t vol)
+void njw1150_set_volume(void)
 {
    u8_t val = 0;
 
-   if (vol == 0)
+   if ( (volume == 0) ||
+         mute )
    {
       i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x3F);
       digitalWrite(PIN_MUTE, HIGH);
@@ -487,17 +517,95 @@ void njw1150_set_volume(u8_t vol)
    }
    else
    {
-
       digitalWrite(PIN_MUTE, LOW);
       i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x00);
-      if (vol >= 32)
+      if (volume >= 32)
+      {
          val = 0;    // 0dB attenuation
-      else if (vol > 16)
-         val = 32 - vol;
+      }
+      else if (volume > 16)
+      {
+         val = 32 - volume;
+      }
       else
-         val = 48 - (vol<<1);
+      {
+         val = 28 - volume;
+         val <<= 1;
+      }
    }
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_VOLUME, val);
+}
+
+
+void njw1150_set_sub(void)
+{
+   u8_t val = 0;
+
+   val = (u8_t) (MAX_SUB - sub);
+   if (val > 20)
+   {
+      val = 20;
+   }
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SUB, val);
+}
+
+
+//===================================
+// Button functions
+//===================================
+
+void button_init(void)
+{
+   pinMode(BUTTON_EFFECT   , INPUT);
+   pinMode(BUTTON_SETTING  , INPUT);
+   pinMode(BUTTON_LEVEL    , INPUT);
+   pinMode(BUTTON_MUTE     , INPUT);
+   button_effect_val  = digitalRead(BUTTON_EFFECT  );
+   button_setting_val = digitalRead(BUTTON_SETTING );
+   button_level_val   = digitalRead(BUTTON_LEVEL   );
+   button_mute_val    = digitalRead(BUTTON_MUTE    );
+}
+
+
+void button_task(void)
+{
+   if (digitalRead(BUTTON_EFFECT) != button_effect_val)
+   {
+      button_effect_val = !button_effect_val;
+      if (!button_effect_val)
+      {
+         button_effect_pressed = true;
+      }
+   }
+
+   if (digitalRead(BUTTON_SETTING) != button_setting_val)
+   {
+      button_setting_val = !button_setting_val;
+      if (!button_setting_val)
+      {
+         button_setting_pressed = true;
+      }
+   }
+
+   if (digitalRead(BUTTON_LEVEL) != button_level_val)
+   {
+      button_level_val = !button_level_val;
+      if (!button_level_val)
+      {
+         button_level_pressed = true;
+      }
+   }
+
+   if (digitalRead(BUTTON_MUTE) != button_mute_val)
+   {
+      button_mute_val = !button_mute_val;
+      if (!button_mute_val)
+      {
+         button_mute_pressed = true;
+         mute = !mute;
+         update_njw1150 = true;
+      }
+   }
 }
 
 
@@ -513,16 +621,24 @@ void splash (void)
       strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
       strncpy( &lcd_buffer.lin.line1[18 - k], "Johnny ", 6);
       lcd_update_display();
-      delay(200);
+      delay(150);
    }
    delay(500);
 }
 
 
+void show_quote(void)
+{
+   lcd_clear_buffer();
+   strncpy( &lcd_buffer.lin.line0[10], "Enneh  ", 6);
+   strncpy( &lcd_buffer.lin.line1[3],  "Manneh ", 6);
+   update_screen  = true;
+}
+
 void set_volume(void)
 {
-   u16_t vol_dif2;
-   u16_t k;
+   u8_t vol_dif2;
+   u8_t k;
 
    vol_dif2 = volume>>1;
 
@@ -531,9 +647,9 @@ void set_volume(void)
    Serial.println (volume);
 #endif
    lcd_clear_buffer();
-   strncpy( &lcd_buffer.lin.line0[4], "Volume - ", 8);
+   strncpy( &lcd_buffer.lin.line0[4], "Volume: ", 8);
    sprintf( msg, "%02d", volume);
-   strncpy( &lcd_buffer.lin.line0[13], msg, 2);
+   strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    for(k = 0; k < vol_dif2; k++)
    {
       lcd_buffer.lin.line1[k+2] = '=';
@@ -552,17 +668,126 @@ void set_volume(void)
    Serial.print ("\n");
 #endif
 
-   update = true;
+   update_screen  = true;
+   update_njw1150 = true;
+}
+
+void set_sub(void)
+{
+   s8_t k;
+
+   lcd_clear_buffer();
+   if ( sub >= 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[4], "Sub:  +",  7);
+      sprintf( msg, "%02d", sub);
+      strncpy( &lcd_buffer.lin.line0[11], msg, 2);
+   }
+   else
+   {
+      strncpy( &lcd_buffer.lin.line0[4], "Sub:  -",  7);
+      sprintf( msg, "%02d", -sub);
+      strncpy( &lcd_buffer.lin.line0[11], msg, 2);
+   }
+   for (k = 0; k <= (MAX_SUB - MIN_SUB); k++)
+   {
+      if (k == (sub - MIN_SUB))
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
+      }
+      else
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
+      }
+   }
+
+   update_screen  = true;
+   update_njw1150 = true;
+}
+
+
+void handle_level(void)
+{
+   if (!inactivity_countdown)
+   {
+      level_state = LEVEL_STATE_VOLUME;
+   }
+   else
+   {
+      if (button_level_pressed)
+      {
+         level_state++;
+         if (level_state > LEVEL_STATE_MAX)
+         {
+            level_state = LEVEL_STATE_VOLUME;
+         }
+      }
+   }
+   button_level_pressed = false;
+
+   switch(level_state)
+   {
+      case LEVEL_STATE_VOLUME:
+      {
+         if (right)
+         {
+            volume += cnt2;
+            cnt2   = 0;
+            right  = false;
+            if (volume > MAX_VOLUME)
+               volume = MAX_VOLUME;
+         }
+         if (left)
+         {
+            volume -= cnt1;
+            cnt1   = 0;
+            left   = false;
+            if (volume < 0)
+               volume = 0;
+         }
+         set_volume();
+         break;
+      }
+      case LEVEL_STATE_SUB:
+      {
+         if (right)
+         {
+            sub += cnt2;
+            cnt2   = 0;
+            right  = false;
+            if (sub > MAX_SUB)
+               sub = MAX_SUB;
+         }
+         if (left)
+         {
+            sub -= cnt1;
+            cnt1   = 0;
+            left   = false;
+            if (sub < MIN_SUB)
+               sub = MIN_SUB;
+         }
+         set_sub();
+         break;
+      }
+      case LEVEL_STATE_BALANCE:
+      {
+         break;
+      }
+      case LEVEL_STATE_SURROUND:
+      {
+         break;
+      }
+      default:
+         level_state = LEVEL_STATE_VOLUME;
+         break;
+   }
+   inactivity_countdown = INACTIVITY_COUNT_INIT;
 }
 
 
 void screen_update(void)
 {
-   if (update)
-   {
-      lcd_update_display();
-   }
-   update = false;
+   lcd_update_display();
 }
 
 
@@ -577,6 +802,7 @@ void setup()
    digitalWrite(PIN_MUTE, HIGH);
    digitalWrite(PIN_ON,   HIGH);
 
+   button_init();
    spi_init();
    i2c_init();
 
@@ -584,55 +810,62 @@ void setup()
    Serial.begin (9600);
 #endif
 
+   njw1150_init();
    delay(500);
    lcd_init();
-   njw1150_init();
    delay(500);
 
    digitalWrite(PIN_ON,   LOW);
 
    splash();
    rotary_init();
+
+   // default levels
+   volume = 5;
+   sub    = 0;
+   update_njw1150 = true;
 }
 
 void loop()
 {
    static u16_t loop_cnt = 0;
+   button_task();
 
-   if (right || left)
+   if ( right ||
+        left  ||
+        button_level_pressed)
    {
-      if (right)
-      {
-         volume += cnt2;
-         cnt2   = 0;
-         right  = false;
-         if (volume > MAX_VOLUME)
-            volume = MAX_VOLUME;
-
-         set_volume();
-      }
-
-      if (left)
-      {
-         volume -= cnt1;
-         cnt1   = 0;
-         left   = false;
-         if (volume < 0)
-            volume = 0;
-
-         set_volume();
-      }
+      handle_level();
    }
 
-   loop_cnt++;
-   if (update)
+   if (update_screen)
    {
       if (!(loop_cnt & 0x03))
+      {
          screen_update();
-
-      if (!(loop_cnt & 0x07))
-         njw1150_set_volume(volume);
+         update_screen = false;
+      }
    }
-   delay(25);
+
+   if (update_njw1150)
+   {
+      if (!(loop_cnt & 0x07))
+      {
+         njw1150_set_volume();
+         njw1150_set_sub();
+         update_njw1150 = false;
+      }
+   }
+
+   if (inactivity_countdown)
+   {
+      inactivity_countdown--;
+      if (!inactivity_countdown)
+      {
+         show_quote();
+      }
+   }
+   delay(LOOP_IDLE_PERIOD);
+   loop_cnt++;
 }
 
