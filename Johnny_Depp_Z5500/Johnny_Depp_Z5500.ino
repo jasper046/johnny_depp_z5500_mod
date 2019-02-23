@@ -679,15 +679,15 @@ void set_sub(void)
    lcd_clear_buffer();
    if ( sub >= 0 )
    {
-      strncpy( &lcd_buffer.lin.line0[4], "Sub:  +",  7);
+      strncpy( &lcd_buffer.lin.line0[5], "Sub:  +",  7);
       sprintf( msg, "%02d", sub);
-      strncpy( &lcd_buffer.lin.line0[11], msg, 2);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    else
    {
-      strncpy( &lcd_buffer.lin.line0[4], "Sub:  -",  7);
+      strncpy( &lcd_buffer.lin.line0[5], "Sub:  -",  7);
       sprintf( msg, "%02d", -sub);
-      strncpy( &lcd_buffer.lin.line0[11], msg, 2);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    for (k = 0; k <= (MAX_SUB - MIN_SUB); k++)
    {
@@ -824,6 +824,7 @@ void setup()
    volume = 5;
    sub    = 0;
    update_njw1150 = true;
+   inactivity_countdown = INACTIVITY_COUNT_INIT;
 }
 
 void loop()
