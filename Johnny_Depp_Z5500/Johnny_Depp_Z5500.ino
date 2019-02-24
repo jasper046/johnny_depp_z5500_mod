@@ -655,7 +655,7 @@ void njw1150_set_surround(void)
       val = 20;
    }
    i2c_write_register(NJW1150_ADDR, NJW1150_REG_SL, val);
-   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SL, val);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SR, val);
 }
 
 
