@@ -62,13 +62,15 @@
 #define MAX_BALANCE             (7)
 #define MIN_CENTER              (-9)
 #define MAX_CENTER              (6)
+#define MIN_SURROUND            (-9)
+#define MAX_SURROUND            (6)
 
 #define LEVEL_STATE_VOLUME      (0)
 #define LEVEL_STATE_SUB         (1)
 #define LEVEL_STATE_BALANCE     (2)
 #define LEVEL_STATE_CENTER      (3)
 #define LEVEL_STATE_SURROUND    (4)
-#define LEVEL_STATE_MAX         (LEVEL_STATE_CENTER)
+#define LEVEL_STATE_MAX         (LEVEL_STATE_SURROUND)
 
 // Timing
 #define LOOP_IDLE_PERIOD        (20)
@@ -110,11 +112,12 @@ volatile boolean right  = false;
 volatile boolean left   = false;
 volatile boolean button = false;
 
-bool     mute    = false;
-s8_t     volume  = 0;
-s8_t     sub     = 0;
-s8_t     balance = 0;
-s8_t     center  = 0;
+bool     mute      = false;
+s8_t     volume    = 0;
+s8_t     sub       = 0;
+s8_t     balance   = 0;
+s8_t     center    = 0;
+s8_t     surround  = 0;
 
 bool     update_screen  = false;
 bool     update_njw1150 = false;
@@ -611,6 +614,20 @@ void njw1150_set_center(void)
 }
 
 
+void njw1150_set_surround(void)
+{
+   u8_t val = 0;
+
+   val = (u8_t) (MAX_SURROUND - surround);
+   if (val > 20)
+   {
+      val = 20;
+   }
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SL, val);
+   i2c_write_register(NJW1150_ADDR, NJW1150_REG_SL, val);
+}
+
+
 //===================================
 // Button functions
 //===================================
@@ -765,6 +782,11 @@ void set_sub(void)
          strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
       }
    }
+   if (sub)
+   {
+      strncpy( &lcd_buffer.lin.line1[2-MIN_SUB], "+", 1);
+   }
+
 
    update_screen  = true;
    update_njw1150 = true;
@@ -779,29 +801,34 @@ void set_balance(void)
    if (balance == 0)
    {
       strncpy( &lcd_buffer.lin.line0[2], "Balance:  00", 12);
-   }
-   else if ( balance > 0 )
-   {
-      strncpy( &lcd_buffer.lin.line0[2], "Balance: R", 10);
-      sprintf( msg, "%02d", balance);
-      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+      strncpy( &lcd_buffer.lin.line1[2], "-------|-------", 15);
    }
    else
    {
-      strncpy( &lcd_buffer.lin.line0[2], "Balance: L", 10);
-      sprintf( msg, "%02d", -balance);
-      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
-   }
-   for (k = 0; k <= (MAX_BALANCE - MIN_BALANCE); k++)
-   {
-      if (k == (balance - MAX_BALANCE))
+      if ( balance > 0 )
       {
-         strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
+         strncpy( &lcd_buffer.lin.line0[2], "Balance: R", 10);
+         sprintf( msg, "%02d", balance);
+         strncpy( &lcd_buffer.lin.line0[12], msg, 2);
       }
       else
       {
-         strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
+         strncpy( &lcd_buffer.lin.line0[2], "Balance: L", 10);
+         sprintf( msg, "%02d", -balance);
+         strncpy( &lcd_buffer.lin.line0[12], msg, 2);
       }
+      for (k = 0; k <= (MAX_BALANCE - MIN_BALANCE); k++)
+      {
+         if (k == (balance - MIN_BALANCE))
+         {
+            strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
+         }
+         else
+         {
+            strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
+         }
+      }
+      strncpy( &lcd_buffer.lin.line1[2-MIN_BALANCE], "+", 1);
    }
 
    update_screen  = true;
@@ -840,6 +867,52 @@ void set_center (void)
       {
          strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
       }
+   }
+   if (center)
+   {
+      strncpy( &lcd_buffer.lin.line1[2-MIN_CENTER], "+", 1);
+   }
+
+   update_screen  = true;
+   update_njw1150 = true;
+}
+
+
+void set_surround (void)
+{
+   s8_t k;
+
+   lcd_clear_buffer();
+   if ( surround == 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[1], "Surround:  00",  13);
+   }
+   else if ( surround >= 0 )
+   {
+      strncpy( &lcd_buffer.lin.line0[1], "Surround: +", 11);
+      sprintf( msg, "%02d", surround);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+   }
+   else
+   {
+      strncpy( &lcd_buffer.lin.line0[1], "Surround: -", 11);
+      sprintf( msg, "%02d", -surround);
+      strncpy( &lcd_buffer.lin.line0[12], msg, 2);
+   }
+   for (k = 0; k <= (MAX_SURROUND - MIN_SURROUND); k++)
+   {
+      if (k == (surround - MIN_SURROUND))
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
+      }
+      else
+      {
+         strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
+      }
+   }
+   if (surround)
+   {
+      strncpy( &lcd_buffer.lin.line1[2-MIN_SURROUND], "+", 1);
    }
 
    update_screen  = true;
@@ -956,6 +1029,23 @@ void handle_level(void)
       }
       case LEVEL_STATE_SURROUND:
       {
+         if (right)
+         {
+            surround += cnt2;
+            cnt2   = 0;
+            right  = false;
+            if (surround > MAX_SURROUND)
+               surround = MAX_SURROUND;
+         }
+         if (left)
+         {
+            surround -= cnt1;
+            cnt1   = 0;
+            left   = false;
+            if (surround < MIN_SURROUND)
+               surround = MIN_SURROUND;
+         }
+         set_surround();
          break;
       }
       default:
@@ -1040,6 +1130,7 @@ void loop()
          njw1150_set_sub();
          njw1150_set_balance();
          njw1150_set_center();
+         njw1150_set_surround();
          update_njw1150 = false;
       }
    }
