@@ -3,15 +3,27 @@
    the name of Johnny Depp
 */
 
+//===================================
+// includes
+//===================================
+
+#include <EEPROM.h>
+#include <string.h>
+
 
 //===================================
 // definitions
 //===================================
 
+// Debugging
+#define SERIAL_ENABLE           (0)
+
+// SPI pins
 #define SPI_CS     10
 #define SPI_SDA    11
 #define SPI_SCL    12
 
+// I2C pins
 #define I2C_SDA     5
 #define I2C_SCL     4
 #define I2C_DELAY   5
@@ -21,7 +33,6 @@
 
 //BOARD	                    DIGITAL PINS USABLE FOR INTERRUPTS
 //Arduino Nano (328-based):    2, 3
-
 // rotary encoder
 #define ENCPINA 3
 #define ENCPINB 2
@@ -36,7 +47,7 @@
 #define BUTTON_LEVEL    A4
 #define BUTTON_MUTE     A5
 
-// NJW1150 control
+// NJW1150 control (via I2C)
 #define NJW1150_ADDR          0x88
 
 #define NJW1150_REG_VOLUME    0x00
@@ -49,7 +60,7 @@
 #define NJW1150_REG_TONE      0x07
 #define NJW1150_REG_MUTE      0x08
 
-// LCD pannel
+// LCD pannel (via SPI)
 #define LCD_BUFFER_SIZE         (10*8)
 #define LCD_LINE_SIZE           (LCD_BUFFER_SIZE / 2)
 #define LCD_LINE_VISIBLE_LENGTH (20)
@@ -76,9 +87,10 @@
 #define LOOP_IDLE_PERIOD        (20)
 #define INACTIVITY_COUNT_INIT   (150)
 
-// Debugging
-#define SERIAL_ENABLE           (0)
 
+//===================================
+// type definitions
+//===================================
 
 typedef signed char    s8_t;
 typedef signed short   s16_t;
@@ -110,11 +122,15 @@ typedef union
    }fields;
 }settings_t;
 
-char  msg[LCD_LINE_SIZE];
 
 //===================================
 // global variables
 //===================================
+
+char  msg[LCD_LINE_SIZE];
+#if SERIAL_ENABLE
+char  ser_msg[128];
+#endif
 
 LcdBuf_t lcd_buffer;
 
@@ -127,6 +143,12 @@ volatile boolean left   = false;
 volatile boolean button = false;
 
 settings_t levels;
+
+u8_t       flash_idx;
+u8_t       flash_idx_verify;
+settings_t flash_levels;
+settings_t flash_levels_verify;
+
 
 bool     update_screen  = false;
 bool     update_njw1150 = false;
@@ -695,30 +717,8 @@ void button_task(void)
 
 
 //===================================
-// Misc functions
+// Level functions
 //===================================
-
-void splash (void)
-{
-   for(int k = 0; k < 8; k++)
-   {
-      lcd_clear_buffer();
-      strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
-      strncpy( &lcd_buffer.lin.line1[18 - k], "Johnny ", 6);
-      lcd_update_display();
-      delay(150);
-   }
-   delay(500);
-}
-
-
-void show_quote(void)
-{
-   lcd_clear_buffer();
-   strncpy( &lcd_buffer.lin.line0[10], "Enneh  ", 6);
-   strncpy( &lcd_buffer.lin.line1[3],  "Manneh ", 6);
-   update_screen  = true;
-}
 
 void set_volume(void)
 {
@@ -739,7 +739,7 @@ void set_volume(void)
    if (  (levels.fields.volume == 0) ||
          (levels.fields.mute) )
    {
-      strncpy( &lcd_buffer.lin.line1[4], "< mute >", 8);
+      strncpy( &lcd_buffer.lin.line1[5], "< mute >", 8);
    }
    else
    {
@@ -1087,6 +1087,166 @@ void handle_level(void)
 }
 
 
+//===================================
+// flash functions
+//===================================
+
+bool flash_validate(u8_t a, u8_t b)
+{
+   bool valid = false;
+   u8_t c;
+
+   c = ~a;
+
+   if (c == b)
+      valid = true;
+
+#if SERIAL_ENABLE
+      sprintf(ser_msg,"Flash validate %02x %02x %d", a, b, (int)valid);
+      Serial.println(ser_msg);
+#endif
+
+
+   return valid;
+}
+
+void flash_restore_defaults(void)
+{
+   // Use default values
+   levels.fields.mute     = 0;
+   levels.fields.volume   = 5;
+   levels.fields.sub      = 0;
+   levels.fields.balance  = 0;
+   levels.fields.center   = 0;
+   levels.fields.surround = 0;
+
+   flash_update();
+}
+
+void flash_update(void)
+{
+   u16_t addr, k;
+   u8_t  val;
+
+   if (flash_idx > 2)
+   {
+      addr = flash_idx;
+      for (k = 0; k < sizeof(settings_t); k++)
+      {
+         val = ~levels.data[k];
+         EEPROM.update( addr + k,
+                        levels.data[k]);
+         EEPROM.update( addr + sizeof(settings_t) + k,
+                        val);
+#if SERIAL_ENABLE
+      sprintf(ser_msg,"Flash update %d %02x %02x", (addr + k), levels.data[k], val);
+      Serial.println(ser_msg);
+#endif
+      }
+   }
+}
+
+void flash_init(void)
+{
+   u16_t addr, k;
+   bool  flash_corrupt;
+
+   flash_idx         = EEPROM.read(0);
+   flash_idx_verify  = EEPROM.read(1);
+
+#if SERIAL_ENABLE
+      sprintf(ser_msg,"Flash idx reads: %02x, %02x", flash_idx, flash_idx_verify);
+      Serial.println(ser_msg);
+#endif
+
+   if ( (!flash_validate(flash_idx, flash_idx_verify)) ||
+        (flash_idx < 2) )
+   {
+#if SERIAL_ENABLE
+      Serial.print("First time initialization\n");
+#endif
+      // First time
+      flash_idx        = 2;
+      flash_idx_verify = ~flash_idx;
+      EEPROM.update(0, flash_idx);
+      EEPROM.update(1, flash_idx_verify);
+
+      // Use defaults
+      flash_restore_defaults();
+      return;
+   }
+
+   // read levels
+   flash_corrupt = false;
+   addr = flash_idx;
+   for (k = 0; k < sizeof(settings_t); k++)
+   {
+      flash_levels.data[k]        = EEPROM.read(addr + k);
+      flash_levels_verify.data[k] = EEPROM.read(addr + sizeof(settings_t) + k);
+      if (!flash_validate(flash_levels.data[k], flash_levels_verify.data[k]))
+      {
+         flash_corrupt = true;
+      }
+#if SERIAL_ENABLE
+      sprintf(ser_msg,"Flash reads: %02x, %02x, %d", flash_levels.data[k], flash_levels_verify.data[k], (int) flash_corrupt);
+      Serial.println(ser_msg);
+#endif
+   }
+
+   if (flash_corrupt)
+   {
+      // update address to new section
+      flash_idx += 2 * sizeof(settings_t);
+      if (flash_idx < 2)
+         flash_idx = 2;
+      flash_idx_verify = ~flash_idx;
+      EEPROM.update(0, flash_idx);
+      EEPROM.update(1, flash_idx_verify);
+
+      // fallback: use defaults
+      flash_restore_defaults();
+
+#if SERIAL_ENABLE
+      sprintf(ser_msg,"Flash idx moved to: %d and defaults restored", flash_idx);
+      Serial.println(ser_msg);
+#endif
+      return;
+   }
+
+#if SERIAL_ENABLE
+      Serial.println("Flash read: All OK");
+#endif
+   // restored settings are OK, let's use them
+   memcpy(&levels, &flash_levels, sizeof(settings_t));
+}
+
+
+//===================================
+// Misc functions
+//===================================
+
+void splash (void)
+{
+   for(int k = 0; k < 8; k++)
+   {
+      lcd_clear_buffer();
+      strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
+      strncpy( &lcd_buffer.lin.line1[18 - k], "Johnny ", 6);
+      lcd_update_display();
+      delay(150);
+   }
+   delay(500);
+}
+
+
+void show_quote(void)
+{
+   lcd_clear_buffer();
+   strncpy( &lcd_buffer.lin.line0[10], "Enneh  ", 6);
+   strncpy( &lcd_buffer.lin.line1[3],  "Manneh ", 6);
+   update_screen  = true;
+}
+
 void screen_update(void)
 {
    lcd_update_display();
@@ -1116,21 +1276,13 @@ void setup()
    delay(500);
    lcd_init();
    delay(500);
-
-   digitalWrite(PIN_ON,   LOW);
+   digitalWrite(PIN_ON, LOW);
 
    splash();
    rotary_init();
-
-   // default levels
-   levels.fields.mute     = 0;
-   levels.fields.volume   = 5;
-   levels.fields.sub      = 0;
-   levels.fields.balance  = 0;
-   levels.fields.center   = 0;
-   levels.fields.surround = 0;
-
+   flash_init();
    update_njw1150 = true;
+
    inactivity_countdown = INACTIVITY_COUNT_INIT;
 }
 
@@ -1174,6 +1326,7 @@ void loop()
       inactivity_countdown--;
       if (!inactivity_countdown)
       {
+         flash_update();
          show_quote();
       }
    }
