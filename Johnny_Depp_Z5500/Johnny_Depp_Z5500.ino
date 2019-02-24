@@ -164,7 +164,9 @@ bool     button_level_pressed   = false;
 bool     button_mute_pressed    = false;
 
 u8_t     level_state = LEVEL_STATE_VOLUME;
-u8_t     inactivity_countdown;
+u8_t     timer_inactivity;
+u8_t     timer_splash;
+
 
 
 //===================================
@@ -939,7 +941,7 @@ void set_surround (void)
 void handle_level(void)
 {
    // Update level state machine
-   if (!inactivity_countdown)
+   if (!timer_inactivity)
    {
       level_state = LEVEL_STATE_VOLUME;
    }
@@ -962,11 +964,11 @@ void handle_level(void)
 
    if (button_mute_pressed)
    {
+      button_mute_pressed = false;
       if (levels.fields.mute)
          levels.fields.mute = 0;
       else
          levels.fields.mute = 1;
-      button_mute_pressed = false;
    }
 
    // Update level setting
@@ -1083,7 +1085,7 @@ void handle_level(void)
    }
 
    // Reset inactivity timer
-   inactivity_countdown = INACTIVITY_COUNT_INIT;
+   timer_inactivity = INACTIVITY_COUNT_INIT;
 }
 
 
@@ -1233,11 +1235,29 @@ void splash (void)
       strncpy( &lcd_buffer.lin.line0[k + 0], "Here's ", 6);
       strncpy( &lcd_buffer.lin.line1[18 - k], "Johnny ", 6);
       lcd_update_display();
-      delay(150);
+      delay(200);
    }
-   delay(500);
+   delay(200);
 }
 
+
+void show_hammer(void)
+{
+   lcd_clear_buffer();
+   strncpy( &lcd_buffer.lin.line0[0], "You can't touch this ", 20);
+   strncpy( &lcd_buffer.lin.line1[3],  "- MC Hammer - ", 13);
+   update_screen  = true;
+   timer_splash = 50;
+}
+
+void show_touchy(void)
+{
+   lcd_clear_buffer();
+   strncpy( &lcd_buffer.lin.line0[0], "Hi hi hi ...  ", 13);
+   strncpy( &lcd_buffer.lin.line1[3],  "That tickles!", 13);
+   update_screen  = true;
+   timer_splash = 50;
+}
 
 void show_quote(void)
 {
@@ -1273,17 +1293,18 @@ void setup()
 #endif
 
    njw1150_init();
-   delay(500);
+   delay(250);
    lcd_init();
-   delay(500);
+   delay(250);
+   splash();
    digitalWrite(PIN_ON, LOW);
 
-   splash();
    rotary_init();
    flash_init();
    update_njw1150 = true;
 
-   inactivity_countdown = INACTIVITY_COUNT_INIT;
+   timer_splash     = 0;
+   timer_inactivity = INACTIVITY_COUNT_INIT;
 }
 
 void loop()
@@ -1291,12 +1312,27 @@ void loop()
    static u16_t loop_cnt = 0;
    button_task();
 
+   // level settings
    if ( right ||
         left  ||
         button_level_pressed ||
         button_mute_pressed)
    {
       handle_level();
+   }
+
+   // effects button
+   if (button_effect_pressed)
+   {
+      button_effect_pressed = false;
+      show_touchy();
+   }
+
+   // settings button
+   if (button_setting_pressed)
+   {
+      button_setting_pressed = false;
+      show_hammer();
    }
 
    if (update_screen)
@@ -1321,15 +1357,36 @@ void loop()
       }
    }
 
-   if (inactivity_countdown)
+   // sync timers
+   if (timer_inactivity > timer_splash)
    {
-      inactivity_countdown--;
-      if (!inactivity_countdown)
+      timer_splash = timer_inactivity;
+   }
+
+   // update inactivity timer
+   if (timer_inactivity)
+   {
+      timer_inactivity--;
+      if (!timer_inactivity)
       {
+         // user is probably done with level
+         // configuration: update flash storage
          flash_update();
+      }
+   }
+
+   // update splash screen timer
+   if (timer_splash)
+   {
+      timer_splash--;
+      if (!timer_splash)
+      {
+         // splash / level control done,
+         // display regular stuff
          show_quote();
       }
    }
+
    delay(LOOP_IDLE_PERIOD);
    loop_cnt++;
 }
