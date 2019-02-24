@@ -96,6 +96,20 @@ union LcdBuf_t
    }lin;
 };
 
+typedef union
+{
+   u8_t data[6];
+   struct
+   {
+      s8_t     volume;
+      u8_t     mute;
+      s8_t     sub;
+      s8_t     balance;
+      s8_t     center;
+      s8_t     surround;
+   }fields;
+}settings_t;
+
 char  msg[LCD_LINE_SIZE];
 
 //===================================
@@ -112,12 +126,7 @@ volatile boolean right  = false;
 volatile boolean left   = false;
 volatile boolean button = false;
 
-bool     mute      = false;
-s8_t     volume    = 0;
-s8_t     sub       = 0;
-s8_t     balance   = 0;
-s8_t     center    = 0;
-s8_t     surround  = 0;
+settings_t levels;
 
 bool     update_screen  = false;
 bool     update_njw1150 = false;
@@ -523,8 +532,8 @@ void njw1150_set_volume(void)
 {
    u8_t val = 0;
 
-   if ( (volume == 0) ||
-         mute )
+   if ( (levels.fields.volume == 0) ||
+         levels.fields.mute )
    {
       i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x3F);
       digitalWrite(PIN_MUTE, HIGH);
@@ -534,17 +543,17 @@ void njw1150_set_volume(void)
    {
       digitalWrite(PIN_MUTE, LOW);
       i2c_write_register(NJW1150_ADDR, NJW1150_REG_MUTE,   0x00);
-      if (volume >= 32)
+      if (levels.fields.volume >= 32)
       {
          val = 0;    // 0dB attenuation
       }
-      else if (volume > 16)
+      else if (levels.fields.volume > 16)
       {
-         val = 32 - volume;
+         val = 32 - levels.fields.volume;
       }
       else
       {
-         val = 28 - volume;
+         val = 28 - levels.fields.volume;
          val <<= 1;
       }
    }
@@ -556,7 +565,7 @@ void njw1150_set_sub(void)
 {
    u8_t val = 0;
 
-   val = (u8_t) (MAX_SUB - sub);
+   val = (u8_t) (MAX_SUB - levels.fields.sub);
    if (val > 20)
    {
       val = 20;
@@ -569,15 +578,15 @@ void njw1150_set_balance(void)
 {
    u8_t val = 0;
 
-   if (balance == 0)
+   if (levels.fields.balance == 0)
    {
       i2c_write_register(NJW1150_ADDR, NJW1150_REG_LEFT,  0);
       i2c_write_register(NJW1150_ADDR, NJW1150_REG_RIGHT, 0);
    }
-   else if (balance > 0)
+   else if (levels.fields.balance > 0)
    {
       // "right" means attenuate left
-      val = balance;
+      val = levels.fields.balance;
       val <<= 2;
       if (val > 0x1F)
       {
@@ -589,7 +598,7 @@ void njw1150_set_balance(void)
    else
    {
       // "left" means attenuate right
-      val = (u8_t) (-balance);
+      val = (u8_t) (-levels.fields.balance);
       val <<= 2;
       if (val > 0x1F)
       {
@@ -605,7 +614,7 @@ void njw1150_set_center(void)
 {
    u8_t val = 0;
 
-   val = (u8_t) (MAX_CENTER - center);
+   val = (u8_t) (MAX_CENTER - levels.fields.center);
    if (val > 20)
    {
       val = 20;
@@ -618,7 +627,7 @@ void njw1150_set_surround(void)
 {
    u8_t val = 0;
 
-   val = (u8_t) (MAX_SURROUND - surround);
+   val = (u8_t) (MAX_SURROUND - levels.fields.surround);
    if (val > 20)
    {
       val = 20;
@@ -680,8 +689,6 @@ void button_task(void)
       if (!button_mute_val)
       {
          button_mute_pressed = true;
-         mute = !mute;
-         update_njw1150 = true;
       }
    }
 }
@@ -718,33 +725,42 @@ void set_volume(void)
    u8_t vol_dif2;
    u8_t k;
 
-   vol_dif2 = volume>>1;
+   vol_dif2 = levels.fields.volume>>1;
 
    // Update display
 #if SERIAL_ENABLE
-   Serial.println (volume);
+   Serial.println (levels.fields.volume);
 #endif
+
    lcd_clear_buffer();
    strncpy( &lcd_buffer.lin.line0[4], "Volume: ", 8);
-   sprintf( msg, "%02d", volume);
+   sprintf( msg, "%02d", levels.fields.volume);
    strncpy( &lcd_buffer.lin.line0[12], msg, 2);
-   for(k = 0; k < vol_dif2; k++)
+   if (  (levels.fields.volume == 0) ||
+         (levels.fields.mute) )
    {
-      lcd_buffer.lin.line1[k+2] = '=';
-#if SERIAL_ENABLE
-      Serial.print ('X');
-#endif
+      strncpy( &lcd_buffer.lin.line1[4], "< mute >", 8);
    }
-   if (volume & 1)
+   else
    {
-      lcd_buffer.lin.line1[k+2] = '-';
+      for(k = 0; k < vol_dif2; k++)
+      {
+         lcd_buffer.lin.line1[k+2] = '=';
 #if SERIAL_ENABLE
-      Serial.print ('x');
+         Serial.print ('X');
 #endif
-   }
+      }
+      if (levels.fields.volume & 1)
+      {
+         lcd_buffer.lin.line1[k+2] = '-';
+#if SERIAL_ENABLE
+         Serial.print ('x');
+#endif
+      }
 #if SERIAL_ENABLE
    Serial.print ("\n");
 #endif
+   }
 
    update_screen  = true;
    update_njw1150 = true;
@@ -755,25 +771,25 @@ void set_sub(void)
    s8_t k;
 
    lcd_clear_buffer();
-   if ( sub == 0 )
+   if ( levels.fields.sub == 0 )
    {
       strncpy( &lcd_buffer.lin.line0[5], "Sub:   00",  9);
    }
-   else if ( sub >= 0 )
+   else if ( levels.fields.sub >= 0 )
    {
       strncpy( &lcd_buffer.lin.line0[5], "Sub:  +",  7);
-      sprintf( msg, "%02d", sub);
+      sprintf( msg, "%02d", levels.fields.sub);
       strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    else
    {
       strncpy( &lcd_buffer.lin.line0[5], "Sub:  -",  7);
-      sprintf( msg, "%02d", -sub);
+      sprintf( msg, "%02d", -levels.fields.sub);
       strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    for (k = 0; k <= (MAX_SUB - MIN_SUB); k++)
    {
-      if (k == (sub - MIN_SUB))
+      if (k == (levels.fields.sub - MIN_SUB))
       {
          strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
       }
@@ -782,7 +798,7 @@ void set_sub(void)
          strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
       }
    }
-   if (sub)
+   if (levels.fields.sub)
    {
       strncpy( &lcd_buffer.lin.line1[2-MIN_SUB], "+", 1);
    }
@@ -798,28 +814,28 @@ void set_balance(void)
    s8_t k;
 
    lcd_clear_buffer();
-   if (balance == 0)
+   if (levels.fields.balance == 0)
    {
       strncpy( &lcd_buffer.lin.line0[2], "Balance:  00", 12);
       strncpy( &lcd_buffer.lin.line1[2], "-------|-------", 15);
    }
    else
    {
-      if ( balance > 0 )
+      if ( levels.fields.balance > 0 )
       {
          strncpy( &lcd_buffer.lin.line0[2], "Balance: R", 10);
-         sprintf( msg, "%02d", balance);
+         sprintf( msg, "%02d", levels.fields.balance);
          strncpy( &lcd_buffer.lin.line0[12], msg, 2);
       }
       else
       {
          strncpy( &lcd_buffer.lin.line0[2], "Balance: L", 10);
-         sprintf( msg, "%02d", -balance);
+         sprintf( msg, "%02d", -levels.fields.balance);
          strncpy( &lcd_buffer.lin.line0[12], msg, 2);
       }
       for (k = 0; k <= (MAX_BALANCE - MIN_BALANCE); k++)
       {
-         if (k == (balance - MIN_BALANCE))
+         if (k == (levels.fields.balance - MIN_BALANCE))
          {
             strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
          }
@@ -841,25 +857,25 @@ void set_center (void)
    s8_t k;
 
    lcd_clear_buffer();
-   if ( center == 0 )
+   if ( levels.fields.center == 0 )
    {
       strncpy( &lcd_buffer.lin.line0[3], "Center:  00",  11);
    }
-   else if ( center >= 0 )
+   else if ( levels.fields.center >= 0 )
    {
       strncpy( &lcd_buffer.lin.line0[3], "Center: +",  9);
-      sprintf( msg, "%02d", center);
+      sprintf( msg, "%02d", levels.fields.center);
       strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    else
    {
       strncpy( &lcd_buffer.lin.line0[3], "Center: -",  9);
-      sprintf( msg, "%02d", -center);
+      sprintf( msg, "%02d", -levels.fields.center);
       strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    for (k = 0; k <= (MAX_CENTER - MIN_CENTER); k++)
    {
-      if (k == (center - MIN_CENTER))
+      if (k == (levels.fields.center - MIN_CENTER))
       {
          strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
       }
@@ -868,7 +884,7 @@ void set_center (void)
          strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
       }
    }
-   if (center)
+   if (levels.fields.center)
    {
       strncpy( &lcd_buffer.lin.line1[2-MIN_CENTER], "+", 1);
    }
@@ -883,25 +899,25 @@ void set_surround (void)
    s8_t k;
 
    lcd_clear_buffer();
-   if ( surround == 0 )
+   if ( levels.fields.surround == 0 )
    {
       strncpy( &lcd_buffer.lin.line0[1], "Surround:  00",  13);
    }
-   else if ( surround >= 0 )
+   else if ( levels.fields.surround >= 0 )
    {
       strncpy( &lcd_buffer.lin.line0[1], "Surround: +", 11);
-      sprintf( msg, "%02d", surround);
+      sprintf( msg, "%02d", levels.fields.surround);
       strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    else
    {
       strncpy( &lcd_buffer.lin.line0[1], "Surround: -", 11);
-      sprintf( msg, "%02d", -surround);
+      sprintf( msg, "%02d", -levels.fields.surround);
       strncpy( &lcd_buffer.lin.line0[12], msg, 2);
    }
    for (k = 0; k <= (MAX_SURROUND - MIN_SURROUND); k++)
    {
-      if (k == (surround - MIN_SURROUND))
+      if (k == (levels.fields.surround - MIN_SURROUND))
       {
          strncpy( &lcd_buffer.lin.line1[k + 2], "|", 1);
       }
@@ -910,7 +926,7 @@ void set_surround (void)
          strncpy( &lcd_buffer.lin.line1[k + 2], "-", 1);
       }
    }
-   if (surround)
+   if (levels.fields.surround)
    {
       strncpy( &lcd_buffer.lin.line1[2-MIN_SURROUND], "+", 1);
    }
@@ -938,7 +954,20 @@ void handle_level(void)
          }
       }
    }
-   button_level_pressed = false;
+
+   if (button_level_pressed)
+   {
+      button_level_pressed = false;
+   }
+
+   if (button_mute_pressed)
+   {
+      if (levels.fields.mute)
+         levels.fields.mute = 0;
+      else
+         levels.fields.mute = 1;
+      button_mute_pressed = false;
+   }
 
    // Update level setting
    switch(level_state)
@@ -947,19 +976,19 @@ void handle_level(void)
       {
          if (right)
          {
-            volume += cnt2;
+            levels.fields.volume += cnt2;
             cnt2   = 0;
             right  = false;
-            if (volume > MAX_VOLUME)
-               volume = MAX_VOLUME;
+            if (levels.fields.volume > MAX_VOLUME)
+               levels.fields.volume = MAX_VOLUME;
          }
          if (left)
          {
-            volume -= cnt1;
+            levels.fields.volume -= cnt1;
             cnt1   = 0;
             left   = false;
-            if (volume < 0)
-               volume = 0;
+            if (levels.fields.volume < 0)
+               levels.fields.volume = 0;
          }
          set_volume();
          break;
@@ -968,19 +997,19 @@ void handle_level(void)
       {
          if (right)
          {
-            sub += cnt2;
+            levels.fields.sub += cnt2;
             cnt2   = 0;
             right  = false;
-            if (sub > MAX_SUB)
-               sub = MAX_SUB;
+            if (levels.fields.sub > MAX_SUB)
+               levels.fields.sub = MAX_SUB;
          }
          if (left)
          {
-            sub -= cnt1;
+            levels.fields.sub -= cnt1;
             cnt1   = 0;
             left   = false;
-            if (sub < MIN_SUB)
-               sub = MIN_SUB;
+            if (levels.fields.sub < MIN_SUB)
+               levels.fields.sub = MIN_SUB;
          }
          set_sub();
          break;
@@ -989,19 +1018,19 @@ void handle_level(void)
       {
          if (right)
          {
-            balance += cnt2;
+            levels.fields.balance += cnt2;
             cnt2   = 0;
             right  = false;
-            if (balance > MAX_BALANCE)
-               balance = MAX_BALANCE;
+            if (levels.fields.balance > MAX_BALANCE)
+               levels.fields.balance = MAX_BALANCE;
          }
          if (left)
          {
-            balance -= cnt1;
+            levels.fields.balance -= cnt1;
             cnt1   = 0;
             left   = false;
-            if (balance < MIN_BALANCE)
-               balance = MIN_BALANCE;
+            if (levels.fields.balance < MIN_BALANCE)
+               levels.fields.balance = MIN_BALANCE;
          }
          set_balance();
          break;
@@ -1010,19 +1039,19 @@ void handle_level(void)
       {
          if (right)
          {
-            center += cnt2;
+            levels.fields.center += cnt2;
             cnt2   = 0;
             right  = false;
-            if (center > MAX_CENTER)
-               center = MAX_CENTER;
+            if (levels.fields.center > MAX_CENTER)
+               levels.fields.center = MAX_CENTER;
          }
          if (left)
          {
-            center -= cnt1;
+            levels.fields.center -= cnt1;
             cnt1   = 0;
             left   = false;
-            if (center < MIN_CENTER)
-               center = MIN_CENTER;
+            if (levels.fields.center < MIN_CENTER)
+               levels.fields.center = MIN_CENTER;
          }
          set_center();
          break;
@@ -1031,19 +1060,19 @@ void handle_level(void)
       {
          if (right)
          {
-            surround += cnt2;
+            levels.fields.surround += cnt2;
             cnt2   = 0;
             right  = false;
-            if (surround > MAX_SURROUND)
-               surround = MAX_SURROUND;
+            if (levels.fields.surround > MAX_SURROUND)
+               levels.fields.surround = MAX_SURROUND;
          }
          if (left)
          {
-            surround -= cnt1;
+            levels.fields.surround -= cnt1;
             cnt1   = 0;
             left   = false;
-            if (surround < MIN_SURROUND)
-               surround = MIN_SURROUND;
+            if (levels.fields.surround < MIN_SURROUND)
+               levels.fields.surround = MIN_SURROUND;
          }
          set_surround();
          break;
@@ -1094,9 +1123,13 @@ void setup()
    rotary_init();
 
    // default levels
-   volume  = 5;
-   sub     = 0;
-   balance = 0;
+   levels.fields.mute     = 0;
+   levels.fields.volume   = 5;
+   levels.fields.sub      = 0;
+   levels.fields.balance  = 0;
+   levels.fields.center   = 0;
+   levels.fields.surround = 0;
+
    update_njw1150 = true;
    inactivity_countdown = INACTIVITY_COUNT_INIT;
 }
@@ -1108,7 +1141,8 @@ void loop()
 
    if ( right ||
         left  ||
-        button_level_pressed)
+        button_level_pressed ||
+        button_mute_pressed)
    {
       handle_level();
    }
