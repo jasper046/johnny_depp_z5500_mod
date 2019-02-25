@@ -1227,6 +1227,130 @@ void flash_init(void)
 // Misc functions
 //===================================
 
+u16_t quote_nr = 0;
+s16_t quote_length;
+s16_t quote_index;
+
+#define NR_QUOTES 20
+
+const char *quotes[] = {
+
+   "It tastes like porridge - Roc Marciano",
+	"If you don't know, now you know - Notorious B.I.G.",
+	"These pussies get the dildo, I get the deal done - Lil Wayne",
+	"I get loose off of orange juice - Phife Dawg",
+	"Rule number one: keep your fazers on stun - MF DOOM",
+	"Borderline schizo, sort of fine tits though - MF DOOM",
+   "I kick a hole in the speaker, pull the plug, then I jet - Rakim",
+   "I got a long salami and that's no belony - Beatnuts",
+//   "Great minds discuss ideas; average minds discuss events; small minds discuss people - E. Roosevelt",
+//   "If you don’t value your time, neither will others - Kim Garst",
+   "If you’re going through hell keep going - Winston Churchill",
+//   "What seems to us as bitter trials are often blessings in disguise - Oscar Wilde",
+   "The distance between insanity and genius is measured only by success - Bruce Feirstein",
+   "Don’t be afraid to give up the good to go for the great - John D. Rockefeller",
+   "If you can’t explain it simply, you don’t understand it well enough - Albert Einstein",
+   "All progress takes place outside the comfort zone - Michael John Bobak",
+   "The only place where success comes before work is in the dictionary - Vidal Sassoon",
+   "A real entrepreneur is somebody who has no safety net underneath them - Henry Kravis",
+   "The successful warrior is the average man, with laser-like focus - Bruce Lee",
+   "You must expect great things of yourself before you can do them - Michael Jordan",
+   "Be miserable - Wayne Dyer",
+   "It is better to fail in originality than to succeed in imitation - Herman Melville",
+   "Failure is the condiment that gives success its flavor - Truman Capote",
+   NULL };
+
+void quote_select(void)
+{
+#if 1
+   do
+   {
+      quote_nr = rand();
+   }while(quote_nr >= NR_QUOTES);
+#else
+   quote_nr ++;
+   if (quotes[quote_nr] == NULL)
+   {
+      quote_nr = 0;
+   }
+#endif
+
+   quote_length = strlen(quotes[quote_nr]);
+   // if (quote_length)
+   // {
+      // quote_length--;
+   // }
+   quote_index  = 0;
+
+#if SERIAL_ENABLE
+   Serial.println("Quote selected:");
+   Serial.println(quotes[quote_nr]);
+   Serial.println(quote_length);
+#endif
+}
+
+void quote_task(void)
+{
+   s16_t k, idx;
+
+#if SERIAL_ENABLE
+   Serial.println("Quote task:");
+#endif
+   if (  (quote_length == 0) ||
+         (quote_index >= quote_length + 40) )
+   {
+#if SERIAL_ENABLE
+      Serial.println(quote_length);
+      Serial.println(quote_index);
+#endif
+      quote_select();
+   }
+
+   lcd_clear_buffer();
+   if (quote_index >= 20)
+   {
+      for (k = 0; k < 20; k++)
+      {
+         idx = quote_index - 39 + k;
+         if (  (idx >= 0) &&
+               (idx < (s16_t) quote_length) )
+         {
+            msg[k] = quotes[quote_nr][idx];
+         }
+         else
+         {
+            msg[k] = 0x20; // space
+         }
+      }
+      strncpy( &lcd_buffer.lin.line0[0], msg, 20);
+#if SERIAL_ENABLE
+      msg[k] = 0;
+      Serial.println(msg);
+#endif
+   }
+   for (k = 0; k < 20; k++)
+   {
+      idx = quote_index - 19 + k;
+      if (  (idx >= 0) &&
+            (idx < (s16_t) quote_length) )
+      {
+         msg[k] = quotes[quote_nr][idx];
+      }
+      else
+      {
+         msg[k] = 0x20; // space
+      }
+   }
+#if SERIAL_ENABLE
+   msg[k] = 0;
+   Serial.println(msg);
+#endif
+   strncpy( &lcd_buffer.lin.line1[0], msg, 20);
+
+   quote_index++;
+   update_screen  = true;
+}
+
 void splash (void)
 {
    for(int k = 0; k < 8; k++)
@@ -1240,14 +1364,13 @@ void splash (void)
    delay(200);
 }
 
-
 void show_hammer(void)
 {
    lcd_clear_buffer();
    strncpy( &lcd_buffer.lin.line0[0], "You can't touch this ", 20);
    strncpy( &lcd_buffer.lin.line1[3],  "- MC Hammer - ", 13);
    update_screen  = true;
-   timer_splash = 50;
+   timer_splash = 20;
 }
 
 void show_touchy(void)
@@ -1256,15 +1379,7 @@ void show_touchy(void)
    strncpy( &lcd_buffer.lin.line0[0], "Hi hi hi ...  ", 13);
    strncpy( &lcd_buffer.lin.line1[3],  "That tickles!", 13);
    update_screen  = true;
-   timer_splash = 50;
-}
-
-void show_quote(void)
-{
-   lcd_clear_buffer();
-   strncpy( &lcd_buffer.lin.line0[10], "Enneh  ", 6);
-   strncpy( &lcd_buffer.lin.line1[3],  "Manneh ", 6);
-   update_screen  = true;
+   timer_splash = 20;
 }
 
 void screen_update(void)
@@ -1382,8 +1497,16 @@ void loop()
       if (!timer_splash)
       {
          // splash / level control done,
-         // display regular stuff
-         show_quote();
+         // select a new quote to display
+         quote_select();
+      }
+   }
+   else
+   {
+      if (!(loop_cnt & 0x0F))
+      {
+         // update quote display
+         quote_task();
       }
    }
 
